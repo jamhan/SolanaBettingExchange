@@ -63,10 +63,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/markets', async (req, res) => {
     try {
-      const marketData = insertMarketSchema.parse(req.body);
+      const { title, description, creatorId, expiryDate, liquidity, metadata } = req.body;
+      
+      // Handle both wallet address and user UUID for creatorId
+      let actualCreatorId = creatorId;
+      
+      // If creatorId looks like a wallet address (longer than typical UUID), find the user
+      if (creatorId && (creatorId.length > 36 || !creatorId.includes('-'))) {
+        const creator = await storage.getUserByWallet(creatorId);
+        if (!creator) {
+          return res.status(400).json({ error: 'Creator user not found' });
+        }
+        actualCreatorId = creator.id;
+      }
+      
+      // Convert expiryDate string to Date object
+      const processedExpiryDate = new Date(expiryDate);
+      if (isNaN(processedExpiryDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid expiry date format' });
+      }
+      
+      // Prepare market data with processed values
+      const marketDataToValidate = {
+        title,
+        description,
+        creatorId: actualCreatorId,
+        expiryDate: processedExpiryDate,
+        liquidity: liquidity || "0",
+        metadata
+      };
+      
+      // Now validate with the schema
+      const marketData = insertMarketSchema.parse(marketDataToValidate);
+      
       const market = await storage.createMarket(marketData);
       res.json(market);
     } catch (error: any) {
+      console.error('Market creation error:', error);
       res.status(400).json({ error: error.message });
     }
   });
