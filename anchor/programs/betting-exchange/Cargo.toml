@@ -1,0 +1,22 @@
+[package]
+name = "betting-exchange"
+version = "0.1.0"
+description = "Solana betting exchange program"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "betting_exchange"
+
+[dependencies]
+anchor-lang = "0.30.0"
+anchor-spl = "0.30.0"
+spl-token = "4.0.0"
+spl-associated-token-account = "2.3.0"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []

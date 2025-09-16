@@ -1,0 +1,141 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --radius: 8px;
+  --background: hsl(230, 15%, 7%);
+  --foreground: hsl(0, 0%, 95%);
+  --card: hsl(230, 15%, 10%);
+  --card-foreground: hsl(0, 0%, 95%);
+  --popover: hsl(230, 15%, 12%);
+  --popover-foreground: hsl(0, 0%, 95%);
+  --primary: hsl(261, 83%, 58%);
+  --primary-foreground: hsl(0, 0%, 100%);
+  --secondary: hsl(230, 15%, 15%);
+  --secondary-foreground: hsl(0, 0%, 90%);
+  --muted: hsl(230, 15%, 20%);
+  --muted-foreground: hsl(0, 0%, 65%);
+  --accent: hsl(195, 100%, 50%);
+  --accent-foreground: hsl(0, 0%, 100%);
+  --destructive: hsl(0, 73%, 70%);
+  --destructive-foreground: hsl(0, 0%, 100%);
+  --success: hsl(168, 100%, 42%);
+  --success-foreground: hsl(0, 0%, 100%);
+  --border: hsl(230, 15%, 18%);
+  --input: hsl(230, 15%, 15%);
+  --ring: hsl(261, 83%, 58%);
+  --font-sans: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Chart colors */
+  --chart-1: hsl(261, 83%, 58%);
+  --chart-2: hsl(168, 100%, 42%);
+  --chart-3: hsl(195, 100%, 50%);
+  --chart-4: hsl(42, 92%, 56%);
+  --chart-5: hsl(0, 73%, 70%);
+
+  /* Sidebar colors */
+  --sidebar: hsl(230, 15%, 10%);
+  --sidebar-foreground: hsl(0, 0%, 95%);
+  --sidebar-primary: hsl(261, 83%, 58%);
+  --sidebar-primary-foreground: hsl(0, 0%, 100%);
+  --sidebar-accent: hsl(230, 15%, 15%);
+  --sidebar-accent-foreground: hsl(0, 0%, 90%);
+  --sidebar-border: hsl(230, 15%, 18%);
+  --sidebar-ring: hsl(261, 83%, 58%);
+
+  /* Shadow variables */
+  --shadow-2xs: 0px 2px 0px 0px hsl(261, 83%, 58%, 0.00);
+  --shadow-xs: 0px 2px 0px 0px hsl(261, 83%, 58%, 0.00);
+  --shadow-sm: 0px 2px 0px 0px hsl(261, 83%, 58%, 0.00), 0px 1px 2px -1px hsl(261, 83%, 58%, 0.00);
+  --shadow: 0px 2px 0px 0px hsl(261, 83%, 58%, 0.00), 0px 1px 2px -1px hsl(261, 83%, 58%, 0.00);
+  --shadow-md: 0px 2px 0px 0px hsl(261, 83%, 58%, 0.00), 0px 2px 4px -1px hsl(261, 83%, 58%, 0.00);
+  --shadow-lg: 0px 2px 0px 0px hsl(261, 83%, 58%, 0.00), 0px 4px 6px -1px hsl(261, 83%, 58%, 0.00);
+  --shadow-xl: 0px 2px 0px 0px hsl(261, 83%, 58%, 0.00), 0px 8px 10px -1px hsl(261, 83%, 58%, 0.00);
+  --shadow-2xl: 0px 2px 0px 0px hsl(261, 83%, 58%, 0.00);
+
+  --tracking-normal: 0em;
+  --spacing: 0.25rem;
+}
+
+.dark {
+  --background: hsl(230, 15%, 7%);
+  --foreground: hsl(0, 0%, 95%);
+  --card: hsl(230, 15%, 10%);
+  --card-foreground: hsl(0, 0%, 95%);
+  --popover: hsl(230, 15%, 12%);
+  --popover-foreground: hsl(0, 0%, 95%);
+  --primary: hsl(261, 83%, 58%);
+  --primary-foreground: hsl(0, 0%, 100%);
+  --secondary: hsl(230, 15%, 15%);
+  --secondary-foreground: hsl(0, 0%, 90%);
+  --muted: hsl(230, 15%, 20%);
+  --muted-foreground: hsl(0, 0%, 65%);
+  --accent: hsl(195, 100%, 50%);
+  --accent-foreground: hsl(0, 0%, 100%);
+  --destructive: hsl(0, 73%, 70%);
+  --destructive-foreground: hsl(0, 0%, 100%);
+  --success: hsl(168, 100%, 42%);
+  --success-foreground: hsl(0, 0%, 100%);
+  --border: hsl(230, 15%, 18%);
+  --input: hsl(230, 15%, 15%);
+  --ring: hsl(261, 83%, 58%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+    font-family: var(--font-sans);
+  }
+}
+
+@layer components {
+  .gradient-primary {
+    background: linear-gradient(135deg, hsl(261, 83%, 58%) 0%, hsl(261, 83%, 68%) 100%);
+  }
+  
+  .gradient-accent {
+    background: linear-gradient(135deg, hsl(195, 100%, 50%) 0%, hsl(261, 83%, 58%) 100%);
+  }
+  
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+  
+  .animate-pulse-slow {
+    animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(230, 15%, 25%) hsl(230, 15%, 12%);
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 4px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: hsl(230, 15%, 12%);
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(230, 15%, 25%);
+    border-radius: 2px;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: .7;
+  }
+}

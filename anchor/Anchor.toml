@@ -1,0 +1,27 @@
+[features]
+resolution = false
+skip-lint = false
+
+[programs.localnet]
+betting_exchange = "11111111111111111111111111111111"
+
+[registry]
+url = "https://api.anchor.projectserum.com"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+
+[[test.genesis]]
+address = "11111111111111111111111111111111"
+program = "target/deploy/betting_exchange.so"
+
+[test.validator]
+url = "https://api.devnet.solana.com"
+
+[[test.validator.account]]
+address = "11111111111111111111111111111111"
+filename = "target/deploy/betting_exchange-keypair.json"
