@@ -166,8 +166,8 @@ async function seedMarkets(): Promise<void> {
   }
 }
 
-// Run the seeding script
-if (require.main === module) {
+// Run the seeding script if executed directly
+if (import.meta.url === `file://${process.argv[1]}`) {
   seedMarkets()
     .then(() => {
       console.log("🏁 Seeding script completed");
