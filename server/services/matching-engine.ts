@@ -8,98 +8,59 @@ interface OrderBookEntry {
   orders: Order[];
 }
 
+interface MatchResult {
+  order: Order;
+  trades: Trade[];
+  rejected?: boolean;
+  rejectReason?: string;
+}
+
 export class MatchingEngine {
   private yesOrderBook: Map<string, OrderBookEntry[]> = new Map(); // marketId -> sorted order book
   private noOrderBook: Map<string, OrderBookEntry[]> = new Map();
 
-  async processOrder(order: Order): Promise<{ order: Order; trades: Trade[] }> {
+  async processOrder(order: Order): Promise<MatchResult> {
     const trades: Trade[] = [];
     let remainingSize = new Decimal(order.size);
+    const originalSize = new Decimal(order.size);
     
-    // Get opposite side order book
-    const oppositeBook = order.side === 'YES' ? 
-      this.noOrderBook.get(order.marketId) || [] :
-      this.yesOrderBook.get(order.marketId) || [];
+    // Get opposite side order book with proper price-time priority sorting
+    const oppositeBook = this.getOrderBookWithPrioritySort(order.marketId, order.side === 'YES' ? 'NO' : 'YES');
 
-    // Process matching for limit orders
-    if (order.type === 'LIMIT') {
-      for (const level of oppositeBook) {
-        if (remainingSize.isZero()) break;
-        
-        // Check if prices cross
-        const canMatch = order.side === 'YES' ? 
-          new Decimal(order.price).gte(level.price) :
-          new Decimal(order.price).lte(level.price);
-          
-        if (!canMatch) break;
-
-        // Match orders at this price level
-        for (const oppositeOrder of level.orders) {
-          if (remainingSize.isZero()) break;
-          
-          const matchSize = Decimal.min(remainingSize, new Decimal(oppositeOrder.size).minus(oppositeOrder.filled));
-          
-          if (matchSize.gt(0)) {
-            // Create trade
-            const trade = await this.executeTrade(order, oppositeOrder, matchSize, level.price);
-            trades.push(trade);
-            
-            remainingSize = remainingSize.minus(matchSize);
-            
-            // Update filled amounts
-            await storage.updateOrderFilled(order.id, new Decimal(order.filled).plus(matchSize).toString());
-            await storage.updateOrderFilled(oppositeOrder.id, new Decimal(oppositeOrder.filled).plus(matchSize).toString());
-            
-            // Check if orders are completely filled
-            if (new Decimal(oppositeOrder.size).eq(new Decimal(oppositeOrder.filled).plus(matchSize))) {
-              await storage.updateOrderStatus(oppositeOrder.id, 'FILLED');
-            }
-          }
-        }
+    // For FOK orders, check if entire order can be filled first
+    if (order.type === 'FOK') {
+      const canFillCompletely = this.canFillOrderCompletely(order, oppositeBook);
+      if (!canFillCompletely) {
+        const rejectedOrder = await storage.updateOrderStatus(order.id, 'CANCELLED');
+        return { 
+          order: rejectedOrder, 
+          trades: [], 
+          rejected: true, 
+          rejectReason: 'FOK order cannot be completely filled' 
+        };
       }
     }
 
-    // Process market orders
-    if (order.type === 'MARKET') {
-      for (const level of oppositeBook) {
-        if (remainingSize.isZero()) break;
-        
-        for (const oppositeOrder of level.orders) {
-          if (remainingSize.isZero()) break;
-          
-          const matchSize = Decimal.min(remainingSize, new Decimal(oppositeOrder.size).minus(oppositeOrder.filled));
-          
-          if (matchSize.gt(0)) {
-            const trade = await this.executeTrade(order, oppositeOrder, matchSize, level.price);
-            trades.push(trade);
-            
-            remainingSize = remainingSize.minus(matchSize);
-            
-            await storage.updateOrderFilled(order.id, new Decimal(order.filled).plus(matchSize).toString());
-            await storage.updateOrderFilled(oppositeOrder.id, new Decimal(oppositeOrder.filled).plus(matchSize).toString());
-            
-            if (new Decimal(oppositeOrder.size).eq(new Decimal(oppositeOrder.filled).plus(matchSize))) {
-              await storage.updateOrderStatus(oppositeOrder.id, 'FILLED');
-            }
-          }
-        }
-      }
+    // Process matching based on order type
+    if (['LIMIT', 'IOC', 'FOK'].includes(order.type)) {
+      remainingSize = await this.processLimitTypeOrder(order, oppositeBook, remainingSize, trades);
+    } else if (order.type === 'MARKET') {
+      remainingSize = await this.processMarketOrder(order, oppositeBook, remainingSize, trades);
     }
 
-    // Update order status
-    const totalFilled = new Decimal(order.filled).plus(new Decimal(order.size).minus(remainingSize));
+    // Calculate fill status
+    const totalFilled = originalSize.minus(remainingSize);
+    let status = this.determineOrderStatus(order.type, totalFilled, originalSize, remainingSize);
     
-    let status = 'PENDING';
-    if (totalFilled.eq(order.size)) {
-      status = 'FILLED';
-    } else if (totalFilled.gt(0)) {
-      status = 'PARTIAL';
+    // Handle IOC and FOK post-processing
+    if (order.type === 'IOC' && !remainingSize.isZero()) {
+      status = totalFilled.gt(0) ? 'PARTIAL' : 'CANCELLED';
     }
-    
+
     const updatedOrder = await storage.updateOrderStatus(order.id, status);
 
-    // Add remaining order to book if not fully filled and is limit order
-    if (!remainingSize.isZero() && order.type === 'LIMIT') {
+    // Add remaining order to book only for LIMIT orders that aren't fully filled
+    if (!remainingSize.isZero() && order.type === 'LIMIT' && status !== 'CANCELLED') {
       this.addToOrderBook(updatedOrder);
     }
 
@@ -107,6 +68,141 @@ export class MatchingEngine {
     await this.updateMarketPrices(order.marketId);
 
     return { order: updatedOrder, trades };
+  }
+
+  private getOrderBookWithPrioritySort(marketId: string, side: 'YES' | 'NO'): OrderBookEntry[] {
+    const book = side === 'YES' ? 
+      this.yesOrderBook.get(marketId) || [] :
+      this.noOrderBook.get(marketId) || [];
+
+    // Sort each price level by time (price-time priority)
+    return book.map(level => ({
+      ...level,
+      orders: level.orders.sort((a, b) => 
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      )
+    }));
+  }
+
+  private canFillOrderCompletely(order: Order, oppositeBook: OrderBookEntry[]): boolean {
+    let availableSize = new Decimal(0);
+    const orderPrice = new Decimal(order.price);
+    
+    for (const level of oppositeBook) {
+      const canMatch = order.side === 'YES' ? 
+        orderPrice.gte(level.price) :
+        orderPrice.lte(level.price);
+        
+      if (!canMatch) break;
+      
+      for (const oppositeOrder of level.orders) {
+        const orderSize = new Decimal(oppositeOrder.size).minus(oppositeOrder.filled);
+        availableSize = availableSize.plus(orderSize);
+        
+        if (availableSize.gte(order.size)) {
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  }
+
+  private async processLimitTypeOrder(
+    order: Order, 
+    oppositeBook: OrderBookEntry[], 
+    remainingSize: Decimal, 
+    trades: Trade[]
+  ): Promise<Decimal> {
+    const orderPrice = new Decimal(order.price);
+    
+    for (const level of oppositeBook) {
+      if (remainingSize.isZero()) break;
+      
+      // Check if prices cross
+      const canMatch = order.side === 'YES' ? 
+        orderPrice.gte(level.price) :
+        orderPrice.lte(level.price);
+        
+      if (!canMatch) break;
+
+      // Match orders at this price level with time priority
+      for (const oppositeOrder of level.orders) {
+        if (remainingSize.isZero()) break;
+        
+        const availableSize = new Decimal(oppositeOrder.size).minus(oppositeOrder.filled);
+        const matchSize = Decimal.min(remainingSize, availableSize);
+        
+        if (matchSize.gt(0)) {
+          const trade = await this.executeTrade(order, oppositeOrder, matchSize, level.price);
+          trades.push(trade);
+          
+          remainingSize = remainingSize.minus(matchSize);
+          
+          // Update filled amounts
+          await storage.updateOrderFilled(order.id, new Decimal(order.filled).plus(matchSize).toString());
+          await storage.updateOrderFilled(oppositeOrder.id, new Decimal(oppositeOrder.filled).plus(matchSize).toString());
+          
+          // Check if opposite order is completely filled
+          if (new Decimal(oppositeOrder.size).eq(new Decimal(oppositeOrder.filled).plus(matchSize))) {
+            await storage.updateOrderStatus(oppositeOrder.id, 'FILLED');
+          }
+        }
+      }
+    }
+    
+    return remainingSize;
+  }
+
+  private async processMarketOrder(
+    order: Order, 
+    oppositeBook: OrderBookEntry[], 
+    remainingSize: Decimal, 
+    trades: Trade[]
+  ): Promise<Decimal> {
+    for (const level of oppositeBook) {
+      if (remainingSize.isZero()) break;
+      
+      for (const oppositeOrder of level.orders) {
+        if (remainingSize.isZero()) break;
+        
+        const availableSize = new Decimal(oppositeOrder.size).minus(oppositeOrder.filled);
+        const matchSize = Decimal.min(remainingSize, availableSize);
+        
+        if (matchSize.gt(0)) {
+          const trade = await this.executeTrade(order, oppositeOrder, matchSize, level.price);
+          trades.push(trade);
+          
+          remainingSize = remainingSize.minus(matchSize);
+          
+          await storage.updateOrderFilled(order.id, new Decimal(order.filled).plus(matchSize).toString());
+          await storage.updateOrderFilled(oppositeOrder.id, new Decimal(oppositeOrder.filled).plus(matchSize).toString());
+          
+          if (new Decimal(oppositeOrder.size).eq(new Decimal(oppositeOrder.filled).plus(matchSize))) {
+            await storage.updateOrderStatus(oppositeOrder.id, 'FILLED');
+          }
+        }
+      }
+    }
+    
+    return remainingSize;
+  }
+
+  private determineOrderStatus(
+    orderType: string, 
+    totalFilled: Decimal, 
+    originalSize: Decimal, 
+    remainingSize: Decimal
+  ): string {
+    if (totalFilled.eq(originalSize)) {
+      return 'FILLED';
+    } else if (totalFilled.gt(0)) {
+      return 'PARTIAL';
+    } else if (orderType === 'IOC' || orderType === 'FOK') {
+      return 'CANCELLED';
+    } else {
+      return 'PENDING';
+    }
   }
 
   private async executeTrade(buyOrder: Order, sellOrder: Order, size: Decimal, price: Decimal): Promise<Trade> {

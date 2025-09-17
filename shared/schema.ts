@@ -34,7 +34,7 @@ export const orders = pgTable("orders", {
   marketId: uuid("market_id").notNull().references(() => markets.id),
   userId: uuid("user_id").notNull().references(() => users.id),
   side: varchar("side", { length: 4 }).notNull(), // 'YES' or 'NO'
-  type: varchar("type", { length: 10 }).notNull(), // 'MARKET' or 'LIMIT'
+  type: varchar("type", { length: 10 }).notNull(), // 'MARKET', 'LIMIT', 'IOC', 'FOK'
   price: decimal("price", { precision: 5, scale: 4 }).notNull(),
   size: decimal("size", { precision: 18, scale: 6 }).notNull(),
   filled: decimal("filled", { precision: 18, scale: 6 }).notNull().default("0"),
