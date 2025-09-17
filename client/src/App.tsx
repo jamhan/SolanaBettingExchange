@@ -5,12 +5,16 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WalletConnectionProvider } from "@/components/wallet-connection";
 import Dashboard from "@/pages/dashboard";
+import Markets from "@/pages/markets";
+import MarketDetail from "@/pages/market-detail";
 import NotFound from "@/pages/not-found";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
+      <Route path="/markets" component={Markets} />
+      <Route path="/market/:id" component={MarketDetail} />
       <Route component={NotFound} />
     </Switch>
   );

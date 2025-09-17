@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { MarketSelector } from "@/components/market-selector";
 import { MarketOverview } from "@/components/market-overview";
 import { OrderForm } from "@/components/order-form";
@@ -36,9 +37,9 @@ export default function Dashboard() {
               </h1>
             </div>
             <nav className="hidden md:flex items-center space-x-6" data-testid="navigation">
-              <a href="#" className="text-foreground hover:text-primary transition-colors" data-testid="nav-markets">
+              <Link to="/markets" className="text-foreground hover:text-primary transition-colors" data-testid="nav-markets">
                 Markets
-              </a>
+              </Link>
               <a href="#" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="nav-portfolio">
                 Portfolio
               </a>
