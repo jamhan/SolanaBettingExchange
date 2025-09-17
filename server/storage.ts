@@ -16,7 +16,7 @@ import {
   type InsertPosition
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, or } from "drizzle-orm";
 
 export interface IStorage {
   // User methods
@@ -184,8 +184,9 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(trades)
       .where(
-        and(
-          eq(trades.buyerId, userId)
+        or(
+          eq(trades.buyerId, userId),
+          eq(trades.sellerId, userId)
         )
       )
       .orderBy(desc(trades.createdAt));

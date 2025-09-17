@@ -26,8 +26,21 @@ export function OrderForm({ market }: OrderFormProps) {
 
   const placeOrderMutation = useMutation({
     mutationFn: async (orderData: any) => {
-      const response = await apiRequest('POST', '/api/orders', orderData);
-      return response.json();
+      // First, get the user by wallet address to get the UUID  
+      const user = await apiRequest('GET', `/api/users/${walletAddress}`); // apiRequest already returns JSON
+      
+      if (!user || !user.id) {
+        throw new Error('User not found. Please reconnect your wallet.');
+      }
+      
+      // Replace walletAddress with user UUID
+      const orderDataWithUserId = {
+        ...orderData,
+        userId: user.id, // Use user UUID instead of wallet address
+      };
+      
+      const order = await apiRequest('POST', '/api/orders', orderDataWithUserId); // apiRequest already returns JSON
+      return order;
     },
     onSuccess: () => {
       toast({
@@ -36,9 +49,14 @@ export function OrderForm({ market }: OrderFormProps) {
       });
       setAmount('');
       setPrice('');
+      // Invalidate markets to update prices and volume
       queryClient.invalidateQueries({ queryKey: ['/api/markets'] });
+      // Invalidate user data to update Recent Activity
+      queryClient.invalidateQueries({ queryKey: ['/api/users', walletAddress, 'orders'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/users', walletAddress, 'trades'] });
     },
     onError: (error: any) => {
+      console.error('Order placement error:', error);
       toast({
         title: "Order Failed",
         description: error.message || "Failed to place order",

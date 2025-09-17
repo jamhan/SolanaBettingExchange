@@ -150,9 +150,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Position routes
   app.get('/api/users/:userId/positions', async (req, res) => {
     try {
-      const positions = await storage.getUserPositions(req.params.userId);
+      let userId = req.params.userId;
+      
+      // Check if userId is a wallet address (not UUID format)
+      // UUIDs have hyphens and are 36 characters, wallet addresses are longer and have no hyphens
+      const isWalletAddress = !userId.includes('-') && userId.length > 36;
+      
+      if (isWalletAddress) {
+        // Resolve wallet address to user UUID
+        const user = await storage.getUserByWallet(userId);
+        if (!user) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+        userId = user.id;
+      }
+      
+      const positions = await storage.getUserPositions(userId);
       res.json(positions);
     } catch (error: any) {
+      console.error('Positions endpoint error:', error.message);
       res.status(500).json({ error: error.message });
     }
   });
@@ -169,9 +185,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/users/:userId/trades', async (req, res) => {
     try {
-      const trades = await storage.getUserTrades(req.params.userId);
+      let userId = req.params.userId;
+      
+      // Check if userId is a wallet address (not UUID format)
+      // UUIDs have hyphens and are 36 characters, wallet addresses are longer and have no hyphens
+      const isWalletAddress = !userId.includes('-') && userId.length > 36;
+      
+      if (isWalletAddress) {
+        // Resolve wallet address to user UUID
+        const user = await storage.getUserByWallet(userId);
+        if (!user) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+        userId = user.id;
+      }
+      
+      const trades = await storage.getUserTrades(userId);
       res.json(trades);
     } catch (error: any) {
+      console.error('Trades endpoint error:', error.message);
       res.status(500).json({ error: error.message });
     }
   });

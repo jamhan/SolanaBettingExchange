@@ -9,6 +9,7 @@ import { Market } from "@/types/market";
 import { OrderForm } from "@/components/order-form";
 import { OrderBook } from "@/components/order-book";
 import { RecentActivity } from "@/components/recent-activity";
+import { WalletButton } from "@/components/wallet-connection";
 
 export default function MarketDetail() {
   const [, params] = useRoute("/market/:id");
@@ -166,8 +167,14 @@ export default function MarketDetail() {
               </div>
             </div>
             
-            {/* Current Prices */}
+            {/* Wallet Connection and Current Prices */}
             <div className="flex items-center gap-4 ml-6">
+              <WalletButton />
+            </div>
+          </div>
+          
+          {/* Price Display Row */}
+          <div className="flex items-center gap-4 justify-end">
               <div className="text-center">
                 <div className="text-sm text-muted-foreground mb-1">YES</div>
                 <div className="text-2xl font-bold text-green-500" data-testid="current-yes-price">
@@ -183,7 +190,6 @@ export default function MarketDetail() {
               </div>
             </div>
           </div>
-        </div>
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-12 gap-6">
