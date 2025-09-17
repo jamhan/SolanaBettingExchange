@@ -5,7 +5,8 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Calendar, TrendingUp, Clock, ArrowRight } from "lucide-react";
+import { WalletButton } from "@/components/wallet-connection";
+import { Search, Calendar, TrendingUp, Clock, ArrowRight, Dice2, Circle } from "lucide-react";
 import { Market } from "@/types/market";
 
 export default function Markets() {
@@ -79,8 +80,45 @@ export default function Markets() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground p-6" data-testid="markets-page">
-      <div className="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-background text-foreground" data-testid="markets-page">
+      {/* Header */}
+      <header className="bg-card border-b border-border px-4 py-3" data-testid="header">
+        <div className="flex items-center justify-between max-w-7xl mx-auto">
+          <div className="flex items-center space-x-8">
+            <div className="flex items-center space-x-2" data-testid="logo">
+              <div className="w-8 h-8 gradient-primary rounded-full flex items-center justify-center">
+                <Dice2 className="text-white text-sm" size={16} />
+              </div>
+              <h1 className="text-xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+                SolBet Exchange
+              </h1>
+            </div>
+            <nav className="hidden md:flex items-center space-x-6" data-testid="navigation">
+              <Link to="/" className="text-muted-foreground hover:text-foreground transition-colors" data-testid="nav-overview">
+                Overview
+              </Link>
+              <Link to="/markets" className="text-foreground hover:text-primary transition-colors" data-testid="nav-markets">
+                Markets
+              </Link>
+            </nav>
+          </div>
+          <div className="flex items-center space-x-4">
+            <div className="hidden md:flex items-center space-x-2 text-sm">
+              <div className="flex items-center space-x-1 text-muted-foreground" data-testid="network-status">
+                <Circle className="text-success text-xs" size={8} fill="currentColor" />
+                <span>Mainnet</span>
+              </div>
+              <div className="text-muted-foreground">|</div>
+              <div className="text-muted-foreground font-mono" data-testid="block-height">
+                Block: 234,567,890
+              </div>
+            </div>
+            <WalletButton />
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-6xl mx-auto p-6">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-2" data-testid="page-title">

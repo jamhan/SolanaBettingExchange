@@ -10,7 +10,7 @@ import { WalletButton } from "@/components/wallet-connection";
 import { Market } from "@/types/market";
 import { Dice2, Circle } from "lucide-react";
 
-export default function Dashboard() {
+export default function Overview() {
   const [selectedMarketId, setSelectedMarketId] = useState<string | null>(null);
 
   const { data: markets = [], isLoading: marketsLoading } = useQuery<Market[]>({
@@ -58,7 +58,7 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* Main Dashboard */}
+      {/* Main Trading Interface */}
       <div className="flex-1 max-w-7xl mx-auto px-4 py-6">
         <div className="grid grid-cols-12 gap-6 h-[calc(100vh-120px)]">
           
@@ -72,13 +72,13 @@ export default function Dashboard() {
             />
           </div>
 
-          {/* Main Trading Interface */}
+          {/* Center Column - Market Overview & Order Form */}
           <div className="col-span-12 lg:col-span-6 space-y-6">
             <MarketOverview market={selectedMarket} />
             <OrderForm market={selectedMarket} />
           </div>
 
-          {/* Order Book & Recent Activity */}
+          {/* Right Column - Order Book & Recent Activity */}
           <div className="col-span-12 lg:col-span-3 space-y-6">
             <OrderBook marketId={selectedMarket?.id} />
             <RecentActivity />
