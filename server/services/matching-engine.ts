@@ -115,6 +115,7 @@ export class MatchingEngine {
     trades: Trade[]
   ): Promise<Decimal> {
     const orderPrice = new Decimal(order.price);
+    let orderCumulativeFilled = new Decimal(order.filled);
     
     for (const level of oppositeBook) {
       if (remainingSize.isZero()) break;
@@ -138,13 +139,17 @@ export class MatchingEngine {
           trades.push(trade);
           
           remainingSize = remainingSize.minus(matchSize);
+          orderCumulativeFilled = orderCumulativeFilled.plus(matchSize);
           
-          // Update filled amounts
-          await storage.updateOrderFilled(order.id, new Decimal(order.filled).plus(matchSize).toString());
-          await storage.updateOrderFilled(oppositeOrder.id, new Decimal(oppositeOrder.filled).plus(matchSize).toString());
+          // Update in-memory filled amounts for proper tracking
+          oppositeOrder.filled = new Decimal(oppositeOrder.filled).plus(matchSize).toString();
+          
+          // Update filled amounts in storage with cumulative values
+          await storage.updateOrderFilled(order.id, orderCumulativeFilled.toString());
+          await storage.updateOrderFilled(oppositeOrder.id, oppositeOrder.filled);
           
           // Check if opposite order is completely filled
-          if (new Decimal(oppositeOrder.size).eq(new Decimal(oppositeOrder.filled).plus(matchSize))) {
+          if (new Decimal(oppositeOrder.size).eq(oppositeOrder.filled)) {
             await storage.updateOrderStatus(oppositeOrder.id, 'FILLED');
           }
         }
@@ -160,6 +165,8 @@ export class MatchingEngine {
     remainingSize: Decimal, 
     trades: Trade[]
   ): Promise<Decimal> {
+    let orderCumulativeFilled = new Decimal(order.filled);
+    
     for (const level of oppositeBook) {
       if (remainingSize.isZero()) break;
       
@@ -174,11 +181,17 @@ export class MatchingEngine {
           trades.push(trade);
           
           remainingSize = remainingSize.minus(matchSize);
+          orderCumulativeFilled = orderCumulativeFilled.plus(matchSize);
           
-          await storage.updateOrderFilled(order.id, new Decimal(order.filled).plus(matchSize).toString());
-          await storage.updateOrderFilled(oppositeOrder.id, new Decimal(oppositeOrder.filled).plus(matchSize).toString());
+          // Update in-memory filled amounts for proper tracking
+          oppositeOrder.filled = new Decimal(oppositeOrder.filled).plus(matchSize).toString();
           
-          if (new Decimal(oppositeOrder.size).eq(new Decimal(oppositeOrder.filled).plus(matchSize))) {
+          // Update filled amounts in storage with cumulative values
+          await storage.updateOrderFilled(order.id, orderCumulativeFilled.toString());
+          await storage.updateOrderFilled(oppositeOrder.id, oppositeOrder.filled);
+          
+          // Check if opposite order is completely filled
+          if (new Decimal(oppositeOrder.size).eq(oppositeOrder.filled)) {
             await storage.updateOrderStatus(oppositeOrder.id, 'FILLED');
           }
         }
@@ -257,10 +270,10 @@ export class MatchingEngine {
     if (!level) {
       level = { price, size: new Decimal(0), orders: [] };
       book.push(level);
-      // Sort book: YES ascending, NO descending
+      // Sort book: YES descending (best bid first), NO ascending (best ask first)
       book.sort((a, b) => order.side === 'YES' ? 
-        a.price.minus(b.price).toNumber() :
-        b.price.minus(a.price).toNumber()
+        b.price.minus(a.price).toNumber() :
+        a.price.minus(b.price).toNumber()
       );
     }
     

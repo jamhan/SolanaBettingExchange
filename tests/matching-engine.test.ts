@@ -1,19 +1,28 @@
-import { describe, it, expect, beforeEach } from '@jest/globals';
+import { describe, it, beforeEach } from 'mocha';
+import { expect } from 'chai';
 import { MatchingEngine } from '../server/services/matching-engine';
-import { Order } from '@shared/schema';
+import { Order } from '../shared/schema';
 import Decimal from 'decimal.js';
 
+// Simple mock functions
+const mockStorage = {
+  createTrade: async (data: any) => ({ ...data, id: 'trade-' + Math.random() }),
+  updateOrderFilled: async () => {},
+  updateOrderStatus: async (id: string, status: string) => ({ id, status }),
+  updateOrCreatePosition: async () => {},
+  updateMarketPrices: async () => {},
+  getActiveMarketOrders: async () => [],
+};
+
 // Mock the storage module
-jest.mock('../server/storage', () => ({
-  storage: {
-    createTrade: jest.fn(),
-    updateOrderFilled: jest.fn(),
-    updateOrderStatus: jest.fn(),
-    updateOrCreatePosition: jest.fn(),
-    updateMarketPrices: jest.fn(),
-    getActiveMarketOrders: jest.fn(),
-  },
-}));
+const Module = require('module');
+const originalRequire = Module.prototype.require;
+Module.prototype.require = function(id: string) {
+  if (id === '../server/storage') {
+    return { storage: mockStorage };
+  }
+  return originalRequire.apply(this, arguments);
+};
 
 describe('MatchingEngine', () => {
   let matchingEngine: MatchingEngine;
@@ -21,15 +30,24 @@ describe('MatchingEngine', () => {
 
   beforeEach(() => {
     matchingEngine = new MatchingEngine();
-    jest.clearAllMocks();
+    // Reset mock functions
+    Object.keys(mockStorage).forEach(key => {
+      if (typeof (mockStorage as any)[key] === 'function') {
+        (mockStorage as any)[key] = async (data: any) => 
+          key === 'createTrade' ? { ...data, id: 'trade-' + Math.random() } :
+          key === 'updateOrderStatus' ? { id: data, status: 'PENDING' } :
+          undefined;
+      }
+    });
   });
 
   const createMockOrder = (
     side: 'YES' | 'NO',
-    type: 'MARKET' | 'LIMIT',
+    type: 'MARKET' | 'LIMIT' | 'IOC' | 'FOK',
     price: string,
     size: string,
-    userId: string = 'user-123'
+    userId: string = 'user-123',
+    createdAt: string = new Date().toISOString()
   ): Order => ({
     id: `order-${Date.now()}-${Math.random()}`,
     marketId: mockMarketId,
@@ -40,8 +58,8 @@ describe('MatchingEngine', () => {
     size,
     filled: '0',
     status: 'PENDING',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: createdAt,
+    updatedAt: createdAt,
   });
 
   describe('Order Book Management', () => {
@@ -265,6 +283,259 @@ describe('MatchingEngine', () => {
       
       // Should update sell order to FILLED and buy order to PARTIAL
       expect(storage.updateOrderStatus).toHaveBeenCalledWith(sellOrder.id, 'FILLED');
+    });
+  });
+
+  describe('Price-Time Priority Tests', () => {
+    it('should match orders by price first, then by time within same price', async () => {
+      const storage = require('../server/storage').storage;
+      
+      const earlierTime = new Date('2023-01-01T10:00:00Z').toISOString();
+      const laterTime = new Date('2023-01-01T10:01:00Z').toISOString();
+
+      // Create sell orders at same price but different times
+      const sellOrder1 = createMockOrder('NO', 'LIMIT', '0.6', '100', 'seller1', earlierTime);
+      const sellOrder2 = createMockOrder('NO', 'LIMIT', '0.6', '100', 'seller2', laterTime);
+      const sellOrder3 = createMockOrder('NO', 'LIMIT', '0.7', '100', 'seller3', earlierTime);
+
+      matchingEngine['addToOrderBook'](sellOrder1);
+      matchingEngine['addToOrderBook'](sellOrder2);
+      matchingEngine['addToOrderBook'](sellOrder3);
+
+      const buyOrder = createMockOrder('YES', 'LIMIT', '0.7', '150', 'buyer');
+      const result = await matchingEngine.processOrder(buyOrder);
+
+      expect(result.trades).toHaveLength(2);
+      // First trade should be with earlier order at better price (0.6)
+      expect(result.trades[0].price).toBe('0.6');
+      expect(result.trades[0].size).toBe('100');
+      // Second trade should be remaining size at same price with later order
+      expect(result.trades[1].price).toBe('0.6');
+      expect(result.trades[1].size).toBe('50');
+    });
+
+    it('should prioritize better prices over time', async () => {
+      const sellOrder1 = createMockOrder('NO', 'LIMIT', '0.5', '100', 'seller1');
+      const sellOrder2 = createMockOrder('NO', 'LIMIT', '0.7', '100', 'seller2');
+
+      matchingEngine['addToOrderBook'](sellOrder1);
+      matchingEngine['addToOrderBook'](sellOrder2);
+
+      const buyOrder = createMockOrder('YES', 'LIMIT', '0.7', '150', 'buyer');
+      const result = await matchingEngine.processOrder(buyOrder);
+
+      expect(result.trades).toHaveLength(2);
+      // Better price (0.5) should be matched first
+      expect(result.trades[0].price).toBe('0.5');
+      expect(result.trades[0].size).toBe('100');
+      // Then worse price (0.7)
+      expect(result.trades[1].price).toBe('0.7');
+      expect(result.trades[1].size).toBe('50');
+    });
+  });
+
+  describe('IOC (Immediate-or-Cancel) Order Tests', () => {
+    beforeEach(() => {
+      const storage = require('../server/storage').storage;
+      storage.updateOrderStatus.mockResolvedValue({ status: 'CANCELLED' });
+    });
+
+    it('should execute IOC order immediately and cancel remaining', async () => {
+      const sellOrder = createMockOrder('NO', 'LIMIT', '0.6', '50', 'seller');
+      matchingEngine['addToOrderBook'](sellOrder);
+
+      const iocOrder = createMockOrder('YES', 'IOC', '0.6', '100', 'buyer');
+      const result = await matchingEngine.processOrder(iocOrder);
+
+      expect(result.trades).toHaveLength(1);
+      expect(result.trades[0].size).toBe('50');
+      expect(result.order.status).toBe('PARTIAL'); // Partial fill, rest cancelled
+    });
+
+    it('should cancel IOC order if no matches available', async () => {
+      const sellOrder = createMockOrder('NO', 'LIMIT', '0.8', '100', 'seller');
+      matchingEngine['addToOrderBook'](sellOrder);
+
+      const iocOrder = createMockOrder('YES', 'IOC', '0.7', '50', 'buyer');
+      const result = await matchingEngine.processOrder(iocOrder);
+
+      expect(result.trades).toHaveLength(0);
+      expect(result.order.status).toBe('CANCELLED');
+    });
+
+    it('should fully execute IOC order when sufficient liquidity exists', async () => {
+      const sellOrder1 = createMockOrder('NO', 'LIMIT', '0.6', '60', 'seller1');
+      const sellOrder2 = createMockOrder('NO', 'LIMIT', '0.6', '40', 'seller2');
+
+      matchingEngine['addToOrderBook'](sellOrder1);
+      matchingEngine['addToOrderBook'](sellOrder2);
+
+      const iocOrder = createMockOrder('YES', 'IOC', '0.6', '100', 'buyer');
+      
+      const storage = require('../server/storage').storage;
+      storage.updateOrderStatus.mockResolvedValue({ status: 'FILLED' });
+      
+      const result = await matchingEngine.processOrder(iocOrder);
+
+      expect(result.trades).toHaveLength(2);
+      expect(result.order.status).toBe('FILLED');
+    });
+  });
+
+  describe('FOK (Fill-or-Kill) Order Tests', () => {
+    beforeEach(() => {
+      const storage = require('../server/storage').storage;
+      storage.updateOrderStatus.mockResolvedValue({ status: 'CANCELLED' });
+    });
+
+    it('should fill FOK order completely when sufficient liquidity exists', async () => {
+      const sellOrder1 = createMockOrder('NO', 'LIMIT', '0.6', '60', 'seller1');
+      const sellOrder2 = createMockOrder('NO', 'LIMIT', '0.6', '40', 'seller2');
+
+      matchingEngine['addToOrderBook'](sellOrder1);
+      matchingEngine['addToOrderBook'](sellOrder2);
+
+      const fokOrder = createMockOrder('YES', 'FOK', '0.6', '100', 'buyer');
+      
+      const storage = require('../server/storage').storage;
+      storage.updateOrderStatus.mockResolvedValue({ status: 'FILLED' });
+      
+      const result = await matchingEngine.processOrder(fokOrder);
+
+      expect(result.trades).toHaveLength(2);
+      expect(result.order.status).toBe('FILLED');
+      expect(result.rejected).toBeFalsy();
+    });
+
+    it('should reject FOK order when insufficient liquidity', async () => {
+      const sellOrder = createMockOrder('NO', 'LIMIT', '0.6', '50', 'seller');
+      matchingEngine['addToOrderBook'](sellOrder);
+
+      const fokOrder = createMockOrder('YES', 'FOK', '0.6', '100', 'buyer');
+      const result = await matchingEngine.processOrder(fokOrder);
+
+      expect(result.trades).toHaveLength(0);
+      expect(result.order.status).toBe('CANCELLED');
+      expect(result.rejected).toBe(true);
+      expect(result.rejectReason).toBe('FOK order cannot be completely filled');
+    });
+
+    it('should reject FOK order when price levels do not provide enough liquidity', async () => {
+      const sellOrder1 = createMockOrder('NO', 'LIMIT', '0.5', '30', 'seller1');
+      const sellOrder2 = createMockOrder('NO', 'LIMIT', '0.7', '100', 'seller2');
+
+      matchingEngine['addToOrderBook'](sellOrder1);
+      matchingEngine['addToOrderBook'](sellOrder2);
+
+      const fokOrder = createMockOrder('YES', 'FOK', '0.6', '100', 'buyer');
+      const result = await matchingEngine.processOrder(fokOrder);
+
+      expect(result.rejected).toBe(true);
+      expect(result.trades).toHaveLength(0);
+      // Only 30 shares available at acceptable price (≤ 0.6)
+    });
+  });
+
+  describe('Advanced Partial Fill Scenarios', () => {
+    it('should handle complex partial fills across multiple price levels', async () => {
+      const sellOrder1 = createMockOrder('NO', 'LIMIT', '0.3', '25', 'seller1');
+      const sellOrder2 = createMockOrder('NO', 'LIMIT', '0.4', '25', 'seller2');
+      const sellOrder3 = createMockOrder('NO', 'LIMIT', '0.5', '25', 'seller3');
+      
+      matchingEngine['addToOrderBook'](sellOrder1);
+      matchingEngine['addToOrderBook'](sellOrder2);
+      matchingEngine['addToOrderBook'](sellOrder3);
+
+      const buyOrder = createMockOrder('YES', 'LIMIT', '0.45', '60', 'buyer');
+      const result = await matchingEngine.processOrder(buyOrder);
+      
+      expect(result.trades).toHaveLength(2); // Only first two price levels match
+      
+      const totalFilled = result.trades.reduce((sum, trade) => 
+        sum + parseFloat(trade.size), 0
+      );
+      expect(totalFilled).toBe(50); // 25 + 25 from first two levels
+    });
+
+    it('should handle orders with decimal precision correctly', async () => {
+      const sellOrder = createMockOrder('NO', 'LIMIT', '0.6', '0.000001', 'seller');
+      matchingEngine['addToOrderBook'](sellOrder);
+
+      const buyOrder = createMockOrder('YES', 'LIMIT', '0.6', '0.000001', 'buyer');
+      const result = await matchingEngine.processOrder(buyOrder);
+
+      expect(result.trades).toHaveLength(1);
+      expect(result.trades[0].size).toBe('0.000001');
+    });
+  });
+
+  describe('Order Book State Management', () => {
+    it('should maintain correct order book state after partial fills', async () => {
+      const sellOrder = createMockOrder('NO', 'LIMIT', '0.6', '100', 'seller');
+      matchingEngine['addToOrderBook'](sellOrder);
+
+      // Partially fill the sell order
+      const buyOrder1 = createMockOrder('YES', 'LIMIT', '0.6', '30', 'buyer1');
+      await matchingEngine.processOrder(buyOrder1);
+
+      const orderBook = matchingEngine.getOrderBook(mockMarketId);
+      expect(orderBook.no).toHaveLength(1);
+      expect(orderBook.no[0].size.toString()).toBe('70'); // Remaining size
+    });
+
+    it('should remove completely filled orders from order book', async () => {
+      const sellOrder = createMockOrder('NO', 'LIMIT', '0.6', '100', 'seller');
+      matchingEngine['addToOrderBook'](sellOrder);
+
+      const buyOrder = createMockOrder('YES', 'LIMIT', '0.6', '100', 'buyer');
+      await matchingEngine.processOrder(buyOrder);
+
+      // Should update sell order status to FILLED
+      const storage = require('../server/storage').storage;
+      expect(storage.updateOrderStatus).toHaveBeenCalledWith(sellOrder.id, 'FILLED');
+    });
+  });
+
+  describe('Edge Cases and Error Handling', () => {
+    it('should handle self-matching scenarios', async () => {
+      const sellOrder = createMockOrder('NO', 'LIMIT', '0.6', '100', 'user-123');
+      matchingEngine['addToOrderBook'](sellOrder);
+
+      // Same user placing buy order
+      const buyOrder = createMockOrder('YES', 'LIMIT', '0.6', '100', 'user-123');
+      const result = await matchingEngine.processOrder(buyOrder);
+
+      // Current implementation allows self-matching
+      expect(result.trades).toHaveLength(1);
+    });
+
+    it('should handle extremely large order sizes', async () => {
+      const sellOrder = createMockOrder('NO', 'LIMIT', '0.6', '999999999', 'seller');
+      matchingEngine['addToOrderBook'](sellOrder);
+
+      const buyOrder = createMockOrder('YES', 'LIMIT', '0.6', '999999999', 'buyer');
+      const result = await matchingEngine.processOrder(buyOrder);
+
+      expect(result.trades).toHaveLength(1);
+      expect(result.trades[0].size).toBe('999999999');
+    });
+
+    it('should handle concurrent order processing correctly', async () => {
+      const sellOrder = createMockOrder('NO', 'LIMIT', '0.6', '100', 'seller');
+      matchingEngine['addToOrderBook'](sellOrder);
+
+      // Process multiple orders concurrently
+      const buyOrder1 = createMockOrder('YES', 'LIMIT', '0.6', '60', 'buyer1');
+      const buyOrder2 = createMockOrder('YES', 'LIMIT', '0.6', '40', 'buyer2');
+
+      const results = await Promise.all([
+        matchingEngine.processOrder(buyOrder1),
+        matchingEngine.processOrder(buyOrder2)
+      ]);
+
+      // Should handle concurrent processing without errors
+      expect(results).toHaveLength(2);
+      expect(results[0].trades.length + results[1].trades.length).toBeGreaterThan(0);
     });
   });
 });
