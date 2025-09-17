@@ -26,11 +26,29 @@ export function OrderForm({ market }: OrderFormProps) {
 
   const placeOrderMutation = useMutation({
     mutationFn: async (orderData: any) => {
-      // First, get the user by wallet address to get the UUID  
-      const user = await apiRequest('GET', `/api/users/${walletAddress}`); // apiRequest already returns JSON
+      // First, try to get the user by wallet address to get the UUID
+      let user;
+      try {
+        user = await apiRequest('GET', `/api/users/${walletAddress}`);
+      } catch (error: any) {
+        // Only create user on explicit 404, not on other errors or 304 responses
+        if (error.status === 404) {
+          try {
+            user = await apiRequest('POST', '/api/users', {
+              walletAddress: walletAddress,
+              username: `User_${walletAddress.slice(-8)}`,
+              balance: "100000" // Test wallet gets high balance
+            });
+          } catch (createError) {
+            throw new Error('Failed to create user. Please try again.');
+          }
+        } else {
+          throw new Error('Failed to verify user. Please reconnect your wallet.');
+        }
+      }
       
       if (!user || !user.id) {
-        throw new Error('User not found. Please reconnect your wallet.');
+        throw new Error('Failed to verify user. Please reconnect your wallet.');
       }
       
       // Replace walletAddress with user UUID
